@@ -52,6 +52,18 @@
     text-align: center;
   }
   #toast.show { opacity: 1; }
+
+  /* 刘海/圆角安全区：横屏时左右两侧最要命，iPhone 的刘海会直接压在左边缘上 */
+  :root {
+    --sat: env(safe-area-inset-top, 0px);
+    --sab: env(safe-area-inset-bottom, 0px);
+    --sal: env(safe-area-inset-left, 0px);
+    --sar: env(safe-area-inset-right, 0px);
+  }
+  @media (orientation: landscape) {
+    #boot { gap: 10px; font-size: 13px; padding: 16px; }
+    #toast { top: 14%; }
+  }
 </style>
 </head>
 <body>
@@ -2816,60 +2828,89 @@ function nowMs() {
    左手管开车与切弹（左下摇杆 + 左侧大圆），右手管开火与功能（右下），
    中间一条只放弹种/装填，尽量不挡视线。
    ================================================================== */
+/* 刘海 / 圆角安全区。CSS 里把 env() 落成自定义属性，这里读数值；
+   横屏时 SAFE.l / SAFE.r 会把左右两侧的按键往里推，免得被刘海和圆角吃掉。 */
+var SAFE = { t: 0, b: 0, l: 0, r: 0 };
+function readSafe() {
+  try {
+    var cs = getComputedStyle(document.documentElement);
+    var num = function (n) { var v = parseFloat(cs.getPropertyValue(n)); return isFinite(v) ? v : 0; };
+    SAFE = { t: num('--sat'), b: num('--sab'), l: num('--sal'), r: num('--sar') };
+  } catch (e) {
+    SAFE = { t: 0, b: 0, l: 0, r: 0 };
+  }
+}
+readSafe();
+
 function computeUI(W, H) {
   const short = Math.min(W, H);
+  const land = W > H * 1.25;                        // 宽高比过 1.25 就当横屏
   const pad = Math.round(clamp(short * 0.03, 10, 22));
-  const radarR = Math.round(clamp(short * 0.105, 44, 76));
-  const ammoR = Math.round(clamp(short * 0.105, 42, 74));
-  const joyR = Math.round(clamp(short * 0.125, 50, 82));
-  const fireR = Math.round(clamp(short * 0.115, 46, 74));
-  const abR = Math.round(clamp(short * 0.065, 28, 40));
-  const menuR = Math.round(clamp(short * 0.062, 26, 36));
+  const padT = pad + SAFE.t, padB = pad + SAFE.b;
+  const padL = pad + SAFE.l, padR = pad + SAFE.r;
 
-  const radar = { x: pad + radarR, y: pad + radarR, r: radarR };
-  const ammo = { x: pad + ammoR, y: Math.round(H * 0.40), r: ammoR };
-  const joy = { x: pad + joyR, y: H - pad - joyR, r: joyR };
-  const fire = { x: W - pad - fireR, y: H - pad - fireR, r: fireR };
+  // 横屏时屏幕高度就是短边，圆键整体收 8%，腾出战场
+  const k = land ? 0.92 : 1;
+  const radarR = Math.round(clamp(short * 0.105, 44, 76) * k);
+  const ammoR = Math.round(clamp(short * 0.105, 42, 74) * k);
+  const joyR = Math.round(clamp(short * 0.125, 50, 82) * k);
+  const fireR = Math.round(clamp(short * 0.115, 46, 74) * k);
+  const abR = Math.round(clamp(short * 0.065, 28, 40) * k);
+  const menuR = Math.round(clamp(short * 0.062, 26, 36) * k);
 
-  // 副武器三个小圆：宽屏横排在开火键左边；窄屏（手机竖屏）横排在开火键正上方，
-  // 免得和左下摇杆抢地方
+  const radar = { x: padL + radarR, y: padT + radarR, r: radarR };
+
+  // 弹种键：竖屏放左侧偏上；横屏高度紧，贴到雷达正下方，别去撞左下摇杆
+  const ammoY = land ? (padT + radarR * 2 + ammoR + 16) : Math.round(H * 0.40);
+  const ammo = {
+    x: padL + ammoR,
+    y: Math.round(clamp(ammoY, padT + ammoR, H - padB - ammoR)),
+    r: ammoR
+  };
+
+  const joy = { x: padL + joyR, y: H - padB - joyR, r: joyR };
+  const fire = { x: W - padR - fireR, y: H - padB - fireR, r: fireR };
+
+  // 副武器三个小圆：宽屏横排在开火键左边；窄屏（手机竖屏）横排在开火键正上方
   const gapAB = Math.round(abR * 0.5);
   const narrow = W < 560;
   const ab = [];
   if (!narrow) {
     const abY = fire.y + fireR - abR;
     const abX0 = fire.x - fireR - gapAB - abR;
-    ['mg', 'smoke', 'repair'].forEach(function (k, i) {
-      ab.push({ key: k, x: abX0 - i * (2 * abR + gapAB), y: abY, r: abR });
+    ['mg', 'smoke', 'repair'].forEach(function (key, i) {
+      ab.push({ key: key, x: abX0 - i * (2 * abR + gapAB), y: abY, r: abR });
     });
   } else {
-    const abY = fire.y - fireR - Math.round(abR * 0.9);
+    const abY = fire.y - fireR - Math.round(abR * 1.15);   // 留够缝，别和开火键压一起
     for (let i = 0; i < 3; i++) {
       ab.push({ key: ['mg', 'smoke', 'repair'][i],
                 x: fire.x - i * (2 * abR + gapAB), y: abY, r: abR });
     }
   }
 
-  // 速度读数：摇杆上方一行（竖屏下也不出屏）
-  const speed = { x: joy.x, y: joy.y - joyR - 14 };
+  // 速度读数：摇杆上方一行（横屏往下压，别和雷达抢位置）
+  const speed = { x: joy.x, y: joy.y - joyR - (land ? 10 : 14) };
 
-  // 右侧竖排功能键：从比分条下方排到开火键上方
-  const menuTop = Math.max(radar.y + radarR + 16, Math.round(H * 0.16));
+  // 右侧竖排功能键：横屏时纵向空间只有 390 上下，起点往下压、间距自己算
+  const menuTop = Math.max(radar.y + radarR + (land ? 10 : 16),
+                           Math.round(H * (land ? 0.10 : 0.16)));
   const menuBottom = narrow ? (ab[0].y - ab[0].r - Math.round(abR * 0.6))
-                            : (fire.y - fireR - 16);
+                            : (fire.y - fireR - (land ? 10 : 16));
   const step = (menuBottom - menuTop) / 4;
-  const mR = Math.min(menuR, Math.floor((step - 8) / 2));
+  const mR = Math.min(menuR, Math.max(13, Math.floor((step - 6) / 2)));
   const menu = [];
-  ['view', 'scope', 'gyro', 'mute'].forEach(function (k, i) {
-    menu.push({ key: k, x: W - pad - mR, y: Math.round(menuTop + step * (i + 0.5)), r: mR });
+  ['view', 'scope', 'gyro', 'mute'].forEach(function (key, i) {
+    menu.push({ key: key, x: W - padR - mR, y: Math.round(menuTop + step * (i + 0.5)), r: mR });
   });
 
   // 底部中间：弹种 + 装填一行
-  const center = { x: W / 2, y: H - pad - 14 };
+  const center = { x: W / 2, y: H - padB - 14 };
 
   return { pad: pad, radar: radar, ammo: ammo, joy: joy, fire: fire,
            ab: ab, speed: speed, menu: menu, center: center };
 }
+
 function uiLayout() { return computeUI(W, H); }
 
 /* 把 DOM 按钮摆到 layout 算出来的位置（按钮是 HTML 元素，命中测试由浏览器做） */
@@ -2973,9 +3014,19 @@ function resize() {
   hudCanvas.width = Math.round(W * DPR);
   hudCanvas.height = Math.round(H * DPR);
   hud.setTransform(DPR, 0, 0, DPR, 0, 0);
+  readSafe();           // 转屏/进出全屏后安全区会变
   placeButtons();       // 按新的宽高重排所有圆键
 }
 window.addEventListener('resize', resize);
+
+/* iOS 转屏时 resize 来得晚且只来一次，补两枪；地址栏收放走 visualViewport */
+window.addEventListener('orientationchange', function () {
+  setTimeout(resize, 120);
+  setTimeout(resize, 420);
+});
+if (window.visualViewport && window.visualViewport.addEventListener) {
+  window.visualViewport.addEventListener('resize', resize);
+}
 
 /* ---------- 弹道采样：炮口前方 dist 距离上炮弹的真实高度 ----------
    含初速、重力、仰角，不是 tan 近似，也不是写死值。
