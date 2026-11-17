@@ -561,7 +561,7 @@ function(t,e){"object"==typeof exports&&"undefined"!=typeof module?e(exports):"f
 const WORLD = { w: 4000, d: 3000 };
 const TAU = Math.PI * 2;
 /* 版本水印：截图里一眼看出跑的是哪一版（改代码时顺手改这个） */
-const BUILD_TAG = 'fx-1';
+const BUILD_TAG = 'land-2';
 /* 统一尺度：车模按原始建模尺寸（车长 58）缩到世界里，距离与弹道不动 */
 const TANK_SCALE = 0.55;
 const TANK_LEN = 58 * TANK_SCALE;         // ≈31.9
@@ -2897,12 +2897,27 @@ function computeUI(W, H) {
                            Math.round(H * (land ? 0.10 : 0.16)));
   const menuBottom = narrow ? (ab[0].y - ab[0].r - Math.round(abR * 0.6))
                             : (fire.y - fireR - (land ? 10 : 16));
-  const step = (menuBottom - menuTop) / 4;
-  const mR = Math.min(menuR, Math.max(13, Math.floor((step - 6) / 2)));
   const menu = [];
-  ['view', 'scope', 'gyro', 'mute'].forEach(function (key, i) {
-    menu.push({ key: key, x: W - padR - mR, y: Math.round(menuTop + step * (i + 0.5)), r: mR });
-  });
+  if (land) {
+    /* 横屏：纵向只有 390 上下，四个键竖排会把"第三人称"这种标签挤成竖文字，
+       改成横排贴右上角，和中间的比分条留出一段空当 */
+    const mR0 = Math.round(clamp(short * 0.072, 22, 30));
+    const barRight = W / 2 + Math.min(240, W * 0.30) / 2;   // 和 drawScoreBar 同步
+    const avail = (W - padR) - (barRight + 8);
+    let mR2 = mR0;
+    while (mR2 > 15 && (8 * mR2 + 3 * Math.round(mR2 * 0.35)) > avail) mR2--;
+    const gapM = Math.round(mR2 * 0.35);
+    const my0 = padT + mR2;
+    ['view', 'scope', 'gyro', 'mute'].forEach(function (key, i) {
+      menu.push({ key: key, x: W - padR - mR2 - i * (2 * mR2 + gapM), y: my0, r: mR2 });
+    });
+  } else {
+    const step = (menuBottom - menuTop) / 4;
+    const mR = Math.min(menuR, Math.max(13, Math.floor((step - 6) / 2)));
+    ['view', 'scope', 'gyro', 'mute'].forEach(function (key, i) {
+      menu.push({ key: key, x: W - padR - mR, y: Math.round(menuTop + step * (i + 0.5)), r: mR });
+    });
+  }
 
   // 底部中间：弹种 + 装填一行
   const center = { x: W / 2, y: H - padB - 14 };
@@ -3954,7 +3969,10 @@ function drawSelectPanel() {
 
 /* ---------- 顶部比分条 ---------- */
 function drawScoreBar() {
-  const w = Math.min(340, W - 40), x = W / 2 - w / 2, y = 10, h = 52;
+  const landBar = W > H * 1.25;
+  const w = landBar ? Math.min(240, W * 0.30) : Math.min(340, W - 40);
+  const x = W / 2 - w / 2, y = landBar ? 8 : 10, h = landBar ? 46 : 52;
+  // 横屏时比分条要压在装甲面板右侧，两者不重叠（见 drawHUD 的宽度上限）
   hud.fillStyle = 'rgba(10,14,10,0.66)';
   rr(hud, x, y, w, h, 10);
   hud.fill();
@@ -4083,10 +4101,24 @@ function drawHUD(dt) {
 
   const p = S.player;
 
-  /* 血条 / 装甲 / 计分 */
-  const x = 18, y = 18, w = 264;
+  /* 血条 / 装甲 / 计分。横屏时面板贴雷达右边，宽度上限卡在比分条左边，
+     不然带刘海屏（左右各多 47~53px）时两者会撞上 */
+  const land = W > H * 1.25;
+  const LMh = uiLayout();
+  const sBarW = land ? Math.min(240, W * 0.30) : Math.min(340, W - 40);
+  const sBarX = W / 2 - sBarW / 2;
+
+  const x = land ? LMh.radar.x + LMh.radar.r + 8 : 18;
+  const y = land ? LMh.pad + 2 : 18;
+  const w = land ? Math.max(108, Math.min(170, sBarX - x - 10)) : 264;
+  const hP = land ? 50 : 96;
+
+  // 行距：竖屏原样，横屏压紧
+  const ly1 = y + (land ? 12 : 18), lb1 = y + (land ? 19 : 26), lh1 = land ? 9 : 12;
+  const ly2 = y + (land ? 34 : 52), lb2 = y + (land ? 40 : 60), lh2 = land ? 7 : 8;
+
   hud.fillStyle = 'rgba(10,14,10,0.72)';
-  rr(hud, x, y, w, 96, 12);
+  rr(hud, x, y, w, hP, 12);
   hud.fill();
   hud.strokeStyle = 'rgba(255,255,255,0.09)';
   hud.lineWidth = 1;
@@ -4094,25 +4126,47 @@ function drawHUD(dt) {
 
   hud.textAlign = 'left';
   hud.textBaseline = 'middle';
-  hud.font = '600 11px -apple-system, "PingFang SC", sans-serif';
+  hud.font = '600 ' + (land ? 10 : 11) + 'px -apple-system, "PingFang SC", sans-serif';
   hud.fillStyle = '#8fa085';
-  hud.fillText('车体结构', x + 14, y + 18);
-  bar(hud, x + 14, y + 26, w - 28, 12, p.hp / p.maxHp, '#9ad36a', 'rgba(40,55,30,0.9)');
+  hud.fillText('车体结构', x + 12, ly1);
+  bar(hud, x + 12, lb1, w - 24, lh1, p.hp / p.maxHp, '#9ad36a', 'rgba(40,55,30,0.9)');
 
   hud.fillStyle = '#8fa085';
-  hud.fillText('正面装甲', x + 14, y + 52);
-  bar(hud, x + 14, y + 60, w - 28, 8, p.armor, '#7fb7e8', 'rgba(30,45,60,0.9)');
+  hud.fillText('正面装甲', x + 12, ly2);
+  bar(hud, x + 12, lb2, w - 24, lh2, p.armor, '#7fb7e8', 'rgba(30,45,60,0.9)');
 
-  hud.font = '700 13px -apple-system, "PingFang SC", sans-serif';
-  hud.fillStyle = '#e8f0e0';
-  hud.fillText('得分 ' + S.score, x + 14, y + 84);
-  hud.fillStyle = '#9ad36a';
-  hud.fillText('击毁 ' + S.kills + ' / ' + S.total, x + 92, y + 84);
-  hud.fillStyle = '#d8a45a';
-  hud.fillText('敌 ' + S.enemies.length + ' · 我 ' + (S.allies.length + (p.alive ? 1 : 0)), x + 186, y + 84);
+  const enemyTxt = '敌 ' + S.enemies.length + ' · 我 ' + (S.allies.length + (p.alive ? 1 : 0));
+  if (land) {
+    /* 横屏：面板装不下三组数，得分这行单独放在面板下面 */
+    hud.font = '700 10px -apple-system, "PingFang SC", sans-serif';
+    const sy = y + hP + 15;
+    hud.fillStyle = '#e8f0e0'; hud.fillText('得分 ' + S.score, x, sy);
+    hud.fillStyle = '#9ad36a'; hud.fillText('击毁 ' + S.kills + ' / ' + S.total, x + 60, sy);
+    hud.fillStyle = '#d8a45a'; hud.fillText(enemyTxt, x + 126, sy);
+  } else {
+    hud.font = '700 13px -apple-system, "PingFang SC", sans-serif';
+    hud.fillStyle = '#e8f0e0'; hud.fillText('得分 ' + S.score, x + 14, y + 84);
+    hud.fillStyle = '#9ad36a'; hud.fillText('击毁 ' + S.kills + ' / ' + S.total, x + 92, y + 84);
+    hud.fillStyle = '#d8a45a'; hud.fillText(enemyTxt, x + 186, y + 84);
+  }
 
   /* 装填 */
-  const rw = 190, rx = W / 2 - rw / 2, ry = H - 58;
+  let rw = 190, rx = 0;
+  const ry = land ? H - 46 : H - 58;
+  if (land) {
+    /* 横屏：居中会压到右下那排副武器，改放在摇杆和副武器之间*/
+    const LMr = uiLayout();
+    const leftEdge = LMr.joy.x + LMr.joy.r + 10;
+    let rightEdge = W - 10;
+    for (let i = 0; i < LMr.ab.length; i++) {
+      rightEdge = Math.min(rightEdge, LMr.ab[i].x - LMr.ab[i].r - 10);
+    }
+    const span = Math.max(120, rightEdge - leftEdge);
+    rw = Math.round(clamp(span, 110, 168));
+    rx = Math.round(leftEdge + (span - rw) / 2);
+  } else {
+    rx = W / 2 - rw / 2;
+  }
   const ready = p.reload <= 0;
   hud.fillStyle = 'rgba(10,14,10,0.66)';
   rr(hud, rx - 8, ry - 10, rw + 16, 30, 8);
@@ -4129,7 +4183,8 @@ function drawHUD(dt) {
   const pitchTxt = '仰角 ' + (pitchDeg >= 0 ? '+' : '') + pitchDeg.toFixed(0) + '°';
   hud.font = '700 12px -apple-system, "PingFang SC", sans-serif';
   hud.fillStyle = Math.abs(pitchDeg) < 0.5 ? '#9aa892' : '#ffd06a';
-  hud.fillText(pitchTxt, rx + rw + 74, ry + 5);
+  if (land) { hud.textAlign = 'center'; hud.fillText(pitchTxt, rx + rw / 2, ry - 33); hud.textAlign = 'left'; }
+  else { hud.fillText(pitchTxt, rx + rw + 74, ry + 5); }
 
   /* 比分与旗点 */
   if (!S.over) drawScoreBar();
@@ -4139,7 +4194,8 @@ function drawHUD(dt) {
 
   /* 击杀播报 */
   {
-    let fy = 126;
+    let fy = land ? (y + hP + 31) : 126;
+    const fx = land ? x + 6 : 18;
     hud.textAlign = 'left';
     hud.font = '600 12px -apple-system, "PingFang SC", sans-serif';
     for (let i = 0; i < feed.length; i++) {
@@ -4147,9 +4203,9 @@ function drawHUD(dt) {
       f.life -= dt;
       hud.globalAlpha = clamp(f.life / 1.2, 0, 1);
       hud.fillStyle = 'rgba(0,0,0,0.55)';
-      hud.fillText(f.text, 19, fy + 1);
+      hud.fillText(f.text, fx + 1, fy + 1);
       hud.fillStyle = f.color;
-      hud.fillText(f.text, 18, fy);
+      hud.fillText(f.text, fx, fy);
       fy += 17;
     }
     hud.globalAlpha = 1;
